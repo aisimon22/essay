@@ -1,0 +1,8 @@
+{
+"name": "essaywritng",
+"version": "1.0.0",
+"description": "Simon Essay Checker with Netlify Functions",
+"main": "index.html",
+"dependencies": {
+"node-fetch": "^2.6.7"
+}
