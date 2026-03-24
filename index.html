@@ -409,7 +409,8 @@ ${phase2Advice}
             <div className={`w-full lg:w-[28%] bg-white border-r border-slate-200 flex-col overflow-y-auto p-4 md:p-6 shadow-sm z-0 ${currentPhase > 0 ? 'hidden lg:flex' : 'flex'}`}>
               <div className="mb-6">
                 <label className="block text-slate-700 font-bold mb-2">[選填]作文題目與指示:</label>
-                <textarea className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none resize-none mb-2 text-base" rows="2" placeholder="輸入題目可使批改更準確 \n圖片題務必上傳照片" value={topicText} onChange={(e) => setTopicText(e.target.value)} disabled={currentPhase > 0} />
+                <textarea className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none resize-none mb-2 text-base" rows="2" placeholder="輸入題目可使批改更準確 
+圖片題務必上傳照片" value={topicText} onChange={(e) => setTopicText(e.target.value)} disabled={currentPhase > 0} />
                 <div className="flex items-center space-x-2">
                   <label className={`cursor-pointer px-3 md:px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-lg border border-slate-300 transition-colors ${currentPhase > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
                     <span>📁 上傳題目照片</span>
@@ -421,7 +422,12 @@ ${phase2Advice}
 
               <div className="mb-6 flex-1">
                 <label className="block text-slate-700 font-bold mb-2">學生的英文作文: </label> 
-                <textarea className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none resize-none mb-2 text-base h-40 lg:h-64" placeholder="請貼上文字或上傳手寫稿照片\n批改分3階段進行：\n1. 拼字標點文法修正\n2. 段落結構與修辭建議\n3. 總評與範文\n最後可匯出完整批改到Google Docs" value={essayText} onChange={(e) => setEssayText(e.target.value)} disabled={currentPhase > 0} />
+                <textarea className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none resize-none mb-2 text-base h-40 lg:h-64" placeholder="請貼上文字或上傳手寫稿照片，
+批改分3階段進行：
+1. 拼字標點文法修正
+2. 段落結構與修辭建議
+3. 總評與範文
+最後可匯出完整批改到Google Docs" value={essayText} onChange={(e) => setEssayText(e.target.value)} disabled={currentPhase > 0} />
                 <div className="flex items-center space-x-2">
                   <label className={`cursor-pointer px-3 md:px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-lg border border-slate-300 transition-colors ${currentPhase > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
                     <span>📸 上傳手寫稿照片</span>
