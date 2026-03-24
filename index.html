@@ -1,149 +1,155 @@
-import React, { useState, useEffect, useRef } from 'react';
-
-// --- API Configuration ---
-const apiKey = ""; // Gemini API key handled by environment
-const API_URL = "/.netlify/functions/gemini-proxy";
-// --- Helper Functions ---
-const fileToBase64 = (file) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        // 設定最大寬度，依比例縮放
-        const MAX_WIDTH = 1200;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > MAX_WIDTH) {
-          height = Math.round((height * MAX_WIDTH) / width);
-          width = MAX_WIDTH;
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-
-        // 壓縮圖片為 JPEG 格式，品質 0.8
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-        const base64String = dataUrl.split(',')[1];
-        
-        resolve({
-          inlineData: {
-            data: base64String,
-            mimeType: 'image/jpeg'
-          }
-        });
-      };
-      img.onerror = () => reject(new Error("圖片載入失敗"));
-      img.src = event.target.result;
-    };
-    reader.onerror = () => reject(new Error("檔案讀取失敗"));
-    reader.readAsDataURL(file);
-  });
-};
-
-const delay = (ms) => new Promise(res => setTimeout(res, ms));
-
-const fetchWithRetry = async (url, options, retries = 5) => {
-  let delayTime = 1000;
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await fetch(url, options);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      return await response.json();
-    } catch (error) {
-      if (i === retries - 1) throw error;
-      await delay(delayTime);
-      delayTime *= 2;
-    }
-  }
-};
-
-export default function App() {
-  // --- State Management ---
-  const [topicText, setTopicText] = useState("");
-  const [topicImage, setTopicImage] = useState(null);
-  const [topicImagePreview, setTopicImagePreview] = useState(null);
-
-  const [essayText, setEssayText] = useState("");
-  const [essayImage, setEssayImage] = useState(null);
-  const [essayImagePreview, setEssayImagePreview] = useState(null);
-
-  // Phases: 0=Input, 1=Grammar, 2=Structure, 3=Summary, 4=Q&A
-  const [currentPhase, setCurrentPhase] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [chatHistory, setChatHistory] = useState([]);
-  const [showExport, setShowExport] = useState(false);
-  const [copyStatus, setCopyStatus] = useState("");
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simon改作文 v.21</title>
   
-  const [qaText, setQaText] = useState("");
-  const chatEndRef = useRef(null);
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
 
-  // --- Scroll to bottom when chat updates ---
-  useEffect(() => {
-    if (chatEndRef.current && !showExport) {
-      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [chatHistory, isLoading, showExport]);
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
 
-  // --- System Instruction (Persona & Constraints) ---
-  const systemInstruction = `你是一位名叫 "Simon" 的高中英文老師。你的風格是直接而嚴謹，會挑出每個錯誤，耐心給予具體建議。你的目標是引導學生寫出優秀的英文段落。
+    // --- API Configuration ---
+    // ⚠️ 注意：直接寫在 HTML 裡金鑰會公開。請務必設定使用限制或改用後端隱藏。
+   const API_URL = '/api/gemini';
+
+    // --- Helper Functions ---
+    const fileToBase64 = (file) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            const MAX_WIDTH = 1200;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > MAX_WIDTH) {
+              height = Math.round((height * MAX_WIDTH) / width);
+              width = MAX_WIDTH;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+            const base64String = dataUrl.split(',')[1];
+            
+            resolve({
+              inlineData: {
+                data: base64String,
+                mimeType: 'image/jpeg'
+              }
+            });
+          };
+          img.onerror = () => reject(new Error("圖片載入失敗"));
+          img.src = event.target.result;
+        };
+        reader.onerror = () => reject(new Error("檔案讀取失敗"));
+        reader.readAsDataURL(file);
+      });
+    };
+
+    const delay = (ms) => new Promise(res => setTimeout(res, ms));
+    const fetchWithRetry = async (url, options, retries = 5) => {
+      let delayTime = 1000;
+      for (let i = 0; i < retries; i++) {
+        try {
+          const response = await fetch(url, options);
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          return await response.json();
+        } catch (error) {
+          if (i === retries - 1) throw error;
+          await delay(delayTime);
+          delayTime *= 2;
+        }
+      }
+    };
+
+    function App() {
+      // --- State Management ---
+      const [topicText, setTopicText] = useState("");
+      const [topicImage, setTopicImage] = useState(null);
+      const [topicImagePreview, setTopicImagePreview] = useState(null);
+
+      const [essayText, setEssayText] = useState("");
+      const [essayImage, setEssayImage] = useState(null);
+      const [essayImagePreview, setEssayImagePreview] = useState(null);
+
+      const [currentPhase, setCurrentPhase] = useState(0);
+      const [isLoading, setIsLoading] = useState(false);
+      const [chatHistory, setChatHistory] = useState([]);
+      const [showExport, setShowExport] = useState(false);
+      const [copyStatus, setCopyStatus] = useState("");
+      const [qaText, setQaText] = useState("");
+      const chatEndRef = useRef(null);
+
+      useEffect(() => {
+        if (chatEndRef.current && !showExport) {
+          chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, [chatHistory, isLoading, showExport]);
+
+      const systemInstruction = `你是一位名叫 "Simon" 的高中英文老師。你的風格是直接而嚴謹，會挑出每個錯誤，耐心給予具體建議。你的目標是引導學生寫出優秀的英文段落。
 全域規則（必須嚴格遵守）：
 1. 絕對禁用 Markdown 語法：嚴禁使用任何 Markdown 格式（如 **, *, ~~, #, -, > 等）。若需加粗文字，請直接使用 HTML 標籤 <b>加粗文字</b>。若需換行，請使用 <br>。
 2. 詞彙限制：所有建議與修改，請優先使用台灣高中英文課本（如龍騰版、三民版）或「高中英文參考詞彙表」內的單字，避免使用過於艱深或學術性的詞彙。
 3. 輸出格式：原文錯誤之處用紅色粗體標示（依各階段提示決定是否加紅色刪除線），修改後的地方用綠色粗體 <b style="color:green">正確字</b>。
 4. 排版要求：所有回應要適當使用 <br> 分段分行，但分行間距不要太大，不要有過多無意義的空白行。不要使用任何 markdown 列表，如果要列表請直接輸入數字 1. 2. 3. 搭配 <br>。`;
 
-  // --- Gemini API Call Wrapper ---
-  const callGemini = async (promptText, imageDataList = []) => {
-    setIsLoading(true);
-    try {
-      const parts = [{ text: promptText }];
-      
-      // Add pre-processed images if any
-      for (const imgData of imageDataList) {
-        if (imgData) {
-          parts.push(imgData);
-        }
-      }
+      const callGemini = async (promptText, imageDataList = []) => {
+        setIsLoading(true);
+        try {
+          const parts = [{ text: promptText }];
+          for (const imgData of imageDataList) {
+            if (imgData) {
+              parts.push(imgData);
+            }
+          }
 
-      const payload = {
-        contents: [{ role: "user", parts }],
-        systemInstruction: { parts: [{ text: systemInstruction }] }
+          const payload = {
+            contents: [{ role: "user", parts }],
+            systemInstruction: { parts: [{ text: systemInstruction }] }
+          };
+          const result = await fetchWithRetry(API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const responseText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+          return responseText.replace(/```html|```/g, ''); 
+        } catch (error) {
+          console.error("Gemini API Error:", error);
+          return `系統發生錯誤，請稍後再試。<br><br>錯誤訊息: ${error.message}`;
+        } finally {
+          setIsLoading(false);
+        }
       };
 
-      const result = await fetchWithRetry(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      const startPhase1 = async () => {
+        if (!essayText && !essayImage) {
+            alert("請輸入作文內容或上傳作文照片！");
+            return;
+        }
+        
+        setCurrentPhase(1);
+        setChatHistory([]);
 
-      const responseText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      return responseText.replace(/```html|```/g, ''); // Clean up accidental code blocks
-    } catch (error) {
-      console.error("Gemini API Error:", error);
-      return `系統發生錯誤，請稍後再試。<br><br>錯誤訊息: ${error.message}`;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // --- Phase 1: Grammar & Spelling ---
-  const startPhase1 = async () => {
-    if (!essayText && !essayImage) {
-        alert("請輸入作文內容或上傳作文照片！");
-        return;
-    }
-    
-    setCurrentPhase(1);
-    setChatHistory([]); // Reset chat
-
-    const prompt = `這是學生提交的作文任務。
+        const prompt = `這是學生提交的作文任務。
 【作文題目/提示】：${topicText || "未提供，請直接看作文內容"}
 【作文內容】：${essayText || "請見附圖"}
 
@@ -158,24 +164,21 @@ export default function App() {
    在該句下方緊接一行純文字「說明：」並給予簡短中文解釋。
    標題與副標用粗體
 4. 請直接開始，不要有開場白。結尾不要問任何問題。`;
+        const images = [topicImage, essayImage].filter(Boolean);
+        const response = await callGemini(prompt, images);
+        
+        setChatHistory([{ role: 'simon', content: response, phase: 1 }]);
+      };
 
-    const images = [topicImage, essayImage].filter(Boolean);
-    const response = await callGemini(prompt, images);
-    
-    setChatHistory([{ role: 'simon', content: response, phase: 1 }]);
-  };
-
-  // --- Phase 2: Structure ---
-  const startPhase2 = async () => {
-    setCurrentPhase(2);
-    const images = [topicImage, essayImage].filter(Boolean);
-    const prompt = `【作文題目】：${topicText || "未提供"}
+      const startPhase2 = async () => {
+        setCurrentPhase(2);
+        const images = [topicImage, essayImage].filter(Boolean);
+        const prompt = `【作文題目】：${topicText || "未提供"}
 【學生作文內容】：${essayText || "請參考附圖"}
 
 請針對以上這篇學生的作文，執行 Phase 2：段落結構分析。
-任務要求：
-1. 結構分析：開頭固定說明:"建議每個段落應至少有6句話(主旨句1句，支持句4句，結論句1句):
-主旨句應包含段落主題關鍵字與討論方向。 支持句提出論點後要盡量說明細節，每個論點至少2句話。 結論句要再次強調主題，首尾呼應。"。列出學生原始段落，主旨句後標示(主旨句)整句用藍色字體，支持句後標示(支持句1-4)整句用黑色字體，結論句後標示(結論句)整句用紫色字體。若有缺少主旨句、支持句、結論句，則用紅色標示:"___(缺主旨句)，或___(缺結論句)，或___(缺支持細節)"。
+任務要求：...
+1. 結構分析：開頭固定說明:"建議每個段落應至少有6句話(主旨句1句，支持句4句，結論句1句): 主旨句應包含段落主題關鍵字與討論方向。 支持句提出論點後要盡量說明細節，每個論點至少2句話。 結論句要再次強調主題，首尾呼應。"。列出學生原始段落，主旨句後標示(主旨句)整句用藍色字體，支持句後標示(支持句1-4)整句用黑色字體，結論句後標示(結論句)整句用紫色字體。若有缺少主旨句、支持句、結論句，則用紅色標示:"___(缺主旨句)，或___(缺結論句)，或___(缺支持細節)"。
 2. 增補與強化示範:a.檢查第一句話是否為主旨句，是否包含段落主題的關鍵字與討論方向，是否涵蓋段落大意。b.支持句提出論點後是否有進一步細節說明?每個論點不要只有一句話。c.段落最後是否有結論句？有沒有首尾呼應?先說明錯誤之處，再示範可如何增補主旨句、支持句、結論句，每個段落應至少有6句話(主旨句1句，支持句4句，結論句1句)，新增部分以綠色粗體加底線顯示。
 3. 分析段落三要素: a.統一性(Unity):每段只討論一主題，段落內容有沒有脫離主旨句範圍(離題)、b.連貫性(Coherence):適當使用轉折語使句子連貫，避免跳躍性思維、c.細節(Detail):用字是否明確生動，使用accurate language。以上若沒寫好，先說明這三要素是什麼意思，再指出錯誤與示範改進方法。每項目間空一行。
 4. 逐句修辭分析:修正中式英文，建議流暢自然的表達法。建議變換句型增加多樣性。刪除語意重複的冗贅字。檢查指稱不清或人稱不一致的代名詞。示範更精準生動的寫作方法。每個小項目前加# 。
@@ -183,17 +186,16 @@ export default function App() {
 6. 格式要求：標題與副標用粗體字，每個副標與前一項目間隔一行空白，使用純文字段落或純數字編號（1. 2. 3.）。嚴禁使用星號、連字號等 Markdown 語法。使用 <br> 換行。特別注意：在此範文中若需引述需修改的文字，請用 <b style="color:red">錯誤處</b>（不加刪除線）， 修正處用綠色粗體加底線。
 7. 請直接開始，不要有開場白。結尾不要問任何問題。`;
 
-    const response = await callGemini(prompt, images);
-    setChatHistory(prev => [...prev, { role: 'simon', content: response, phase: 2 }]);
-  };
+        const response = await callGemini(prompt, images);
+        setChatHistory(prev => [...prev, { role: 'simon', content: response, phase: 2 }]);
+      };
 
-  // --- Phase 3: Summary & Example ---
-  const startPhase3 = async () => {
-    setCurrentPhase(3);
-    const images = [topicImage, essayImage].filter(Boolean);
-    const phase2Advice = chatHistory.find(msg => msg.phase === 2)?.content || "";
-    
-    const prompt = `【作文題目】：${topicText || "未提供"}
+      const startPhase3 = async () => {
+        setCurrentPhase(3);
+        const images = [topicImage, essayImage].filter(Boolean);
+        const phase2Advice = chatHistory.find(msg => msg.phase === 2)?.content || "";
+        
+        const prompt = `【作文題目】：${topicText || "未提供"}
 【學生作文內容】：${essayText || "請參考附圖"}
 
 （你在 Phase 2 給予了以下結構建議供參考：
@@ -208,25 +210,21 @@ ${phase2Advice}
 4. 建議表達清單:整理出10個可讓這篇作文更精準生動的高中字彙、片語(phrases)、慣用語(idioms)、句型(sentence patterns)，必須是在原文中沒使用過的字(用粗體小寫字母顯示)，動詞則顯示原型動詞，名詞則顯示單數。清單格式範例:1.<b>英文單字</b>(詞性):中文翻譯。使用情境說明。
 5. 格式要求：標題與副標用粗體字，每個標題及副標之間都要空一行。嚴禁使用 Markdown！只能使用純文字與 HTML 標籤（如 <b>, <br>）。原始錯誤的文字用紅色字體加刪除線(不要用粗體)，修正後的文字用綠色字體加底線(不要用粗體)，段落中新增的高中字彙以粗體顯示。
 6. 請直接開始，不要有開場白，嚴禁:我是 Simon。結尾不要問任何問題。`;
+        const response = await callGemini(prompt, images);
+        
+        const finalNote = `<br><br><b>Simon老師的小提醒：</b><br>1.上面範文不要照抄，吸收內容後重寫一篇，再交給AI批改一次。<br>2. 你可在下面Q&A欄位查單字，把AI當英漢/漢英字典、文法家教、作文專家。或者查看「 <a href="https://dictionary.cambridge.org/dictionary/english-chinese-traditional/" target="_blank" style="color:blue; text-decoration:underline;">劍橋字典</a>」。`;
+        setChatHistory(prev => [...prev, { role: 'simon', content: response + finalNote, phase: 3 }]);
+        setCurrentPhase(4); 
+      };
 
-    const response = await callGemini(prompt, images);
-    
-    const finalNote = `<br><br><b>Simon老師的小提醒：</b><br>1.上面範文不要照抄，吸收內容後重寫一篇，再交給AI批改一次。<br>2. 你可在下面Q&A欄位查單字，把AI當英漢/漢英字典、文法家教、作文專家。或者查看「 <a href="https://dictionary.cambridge.org/dictionary/english-chinese-traditional/" target="_blank" style="color:blue; text-decoration:underline;">劍橋字典</a>」。`;
-    
-    setChatHistory(prev => [...prev, { role: 'simon', content: response + finalNote, phase: 3 }]);
-    setCurrentPhase(4); // Enter Q&A phase
-  };
-
-  // --- Phase 4: Q&A ---
-  const handleQA = async () => {
-    if (!qaText.trim()) return;
-    
-    const userQ = qaText;
-    setQaText("");
-    setChatHistory(prev => [...prev, { role: 'user', content: userQ }]);
-    
-    const images = [topicImage, essayImage].filter(Boolean);
-    const prompt = `以下是學生之前的作文背景（僅供參考，請勿重新批改）：
+      const handleQA = async () => {
+        if (!qaText.trim()) return;
+        const userQ = qaText;
+        setQaText("");
+        setChatHistory(prev => [...prev, { role: 'user', content: userQ }]);
+        
+        const images = [topicImage, essayImage].filter(Boolean);
+        const prompt = `以下是學生之前的作文背景（僅供參考，請勿重新批改）：
 【作文題目】：${topicText || "未提供"}
 【學生作文內容】：${essayText || "請參考附圖"}
 
@@ -239,421 +237,296 @@ ${phase2Advice}
 1. 絕對不要重新批改整篇作文！只需要針對學生的提問進行針對性解答。
 2. 回答要簡潔扼要、切中重點，保持嚴謹但耐心的語氣，開頭不要說:我是Simon老師。
 3. 嚴格遵守全域規則：禁用 Markdown！只能使用純文字與 HTML 標籤（如 <b>, <br>）。若需舉例，請用 <del><b style="color:red">錯誤</b></del> 與 <b style="color:green">正確</b> 標示。`;
+        const response = await callGemini(prompt, images);
+        setChatHistory(prev => [...prev, { role: 'simon', content: response, phase: 4 }]);
+      };
 
-    const response = await callGemini(prompt, images);
-    setChatHistory(prev => [...prev, { role: 'simon', content: response, phase: 4 }]);
-  };
-
-  // --- Image Upload Handlers ---
-  const handleTopicImage = async (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setTopicImagePreview(URL.createObjectURL(file));
-      try {
-        const base64Data = await fileToBase64(file);
-        setTopicImage(base64Data);
-      } catch (error) {
-        console.error("題目圖片處理失敗:", error);
-        alert("題目圖片處理失敗，請換一張照片重試");
-      }
-    }
-  };
-
-  const handleEssayImage = async (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setEssayImagePreview(URL.createObjectURL(file));
-      try {
-        const base64Data = await fileToBase64(file);
-        setEssayImage(base64Data);
-      } catch (error) {
-        console.error("作文圖片處理失敗:", error);
-        alert("作文圖片處理失敗，請換一張照片重試");
-      }
-    }
-  };
-
-  // --- Copy to Clipboard Logic ---
-  const handleCopyReport = () => {
-    const reportDiv = document.createElement('div');
-    // 建立純淨的 HTML 格式，強制使用 Google Docs 預設字體大小(11pt)與緊湊行高(1.15)
-    let htmlContent = `<div style="font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.15;">`;
-    htmlContent += `<h1 style="font-size: 16pt; font-weight: bold; margin-top: 0; margin-bottom: 8pt;">Simon改作文 - 批改報告</h1>`;
-
-    chatHistory.filter(msg => msg.role === 'simon' && msg.phase >= 1 && msg.phase <= 3).forEach(msg => {
-      const title = msg.phase === 1 ? "Phase 1: 拼字、標點與文法修正" :
-                    msg.phase === 2 ? "Phase 2: 段落結構分析" :
-                    "Phase 3: 總評與範文";
-      
-      htmlContent += `<h2 style="font-size: 13pt; font-weight: bold; color: #1e3a8a; margin-top: 14pt; margin-bottom: 4pt; border-bottom: 1px solid #ccc; padding-bottom: 2pt;">${title}</h2>`;
-
-      // 核心排版解法：
-      // 1. 清除可能干擾的原始 <p> 標籤
-      // 2. 將 2 個以上的 <br> 視為「換段落」，轉成帶有微小間距的 </p><p> 
-      // 3. 將單個 <br> 視為「單純換行」，不加間距
-      let cleanContent = msg.content
-        .replace(/<\/?p[^>]*>/gi, '') 
-        .replace(/(<br\s*\/?>\s*){2,}/gi, '</p><p style="margin-top: 0pt; margin-bottom: 6pt;">')
-        .replace(/<br\s*\/?>/gi, '<br>');
-        
-      // 頭尾包上 <p> 確保格式一致
-      cleanContent = `<p style="margin-top: 0pt; margin-bottom: 6pt;">${cleanContent}</p>`;
-      // 移除可能產生的完全空白段落
-      cleanContent = cleanContent.replace(/<p[^>]*>\s*<\/p>/gi, '');
-
-      htmlContent += `<div>${cleanContent}</div>`;
-    });
-    
-    htmlContent += `</div>`;
-
-    reportDiv.innerHTML = htmlContent;
-    reportDiv.style.position = 'absolute';
-    reportDiv.style.left = '-9999px';
-    document.body.appendChild(reportDiv);
-
-    const range = document.createRange();
-    range.selectNodeContents(reportDiv);
-    const selection = window.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-
-    try {
-      document.execCommand('copy');
-      setCopyStatus("✅ 完整報告已複製！請直接至 Google Docs 貼上");
-    } catch (err) {
-      console.error('複製失敗:', err);
-      setCopyStatus("❌ 複製失敗，請嘗試手動選取複製");
-    }
-
-    document.body.removeChild(reportDiv);
-    selection.removeAllRanges();
-
-    // 3.5秒後關閉提示訊息
-    setTimeout(() => setCopyStatus(""), 3500);
-  };
-
-  // --- Render Export View ---
-  if (showExport) {
-    return (
-      <div className="min-h-screen bg-gray-50 p-2 md:p-8 font-sans text-gray-800 relative">
-        {/* 複製成功提示框 (Toast) */}
-        {copyStatus && (
-          <div className="fixed top-10 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-2xl z-50 text-sm md:text-base font-medium animate-bounce">
-            {copyStatus}
-          </div>
-        )}
-
-        <div className="max-w-4xl mx-auto bg-white p-4 md:p-10 rounded-2xl shadow-lg">
-          <div className="flex justify-between items-center mb-6 md:mb-8 border-b pb-4">
-            <h1 
-              className="text-base md:text-3xl font-bold text-slate-800 cursor-pointer hover:opacity-80 transition-opacity select-none active:scale-95"
-              onClick={() => {
-                setShowExport(false);
-                setCurrentPhase(0);
-                setChatHistory([]);
-              }}
-              title="重新開始"
-              role="button"
-            >
-              {/* 加入 hidden md:inline 讓圖示在手機隱藏 */}
-              <span className="hidden md:inline">✒️ </span>Simon改作文
-            </h1>
-            <div className="flex space-x-2 md:space-x-3 flex-wrap justify-end gap-y-2">
-              <a 
-                href="https://docs.google.com/document/create" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="px-3 py-1.5 md:px-4 md:py-2 bg-[#9BAA93] hover:bg-[#819379] text-white rounded-lg transition-colors font-bold text-sm md:text-base shadow-sm flex items-center"
-              >
-                📄 新增 Docs
-              </a>
-              <button 
-                onClick={handleCopyReport}
-                className="px-3 py-1.5 md:px-4 md:py-2 bg-[#7A8C99] hover:bg-[#637582] text-white rounded-lg transition-colors font-bold text-sm md:text-base shadow-sm flex items-center"
-              >
-                📋 一鍵複製
-              </button>
-              <button 
-                onClick={() => setShowExport(false)}
-                className="px-3 py-1.5 md:px-4 md:py-2 bg-[#D1D6DA] hover:bg-[#BEC4C8] text-[#4A5568] rounded-lg transition-colors font-medium text-sm md:text-base flex items-center shadow-sm"
-              >
-                返回
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-4 md:space-y-6">
-            {chatHistory.filter(msg => msg.role === 'simon' && msg.phase >= 1 && msg.phase <= 3).map((msg, idx) => (
-              <div key={idx} className="bg-slate-50 p-4 md:p-6 rounded-xl border border-slate-100 shadow-sm">
-                <h2 className="text-lg md:text-xl font-bold text-slate-700 mb-3 md:mb-4 border-l-4 border-blue-500 pl-3">
-                  {msg.phase === 1 ? "Phase 1: 拼字、標點與文法修正" : 
-                   msg.phase === 2 ? "Phase 2: 段落結構分析" : 
-                   "Phase 3: 總評與範文"}
-                </h2>
-                <div 
-                  className="leading-normal text-base md:text-lg"
-                  dangerouslySetInnerHTML={{ __html: msg.content }} 
-                />
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-8 md:mt-10 bg-blue-50 p-4 md:p-6 rounded-xl border border-blue-100">
-            <h3 className="text-base md:text-lg font-bold text-blue-800 mb-2 md:mb-3">📝 如何保存這份作業：</h3>
-            <ol className="list-decimal list-inside text-blue-900 space-y-1.5 md:space-y-2 leading-normal text-sm md:text-base">
-              <li>您可以一鍵複製內容，並貼上至一個新的 <a href="https://docs.google.com/" target="_blank" rel="noopener noreferrer" className="font-bold text-blue-600 hover:underline">Google Docs</a> 文件中，檔案會自動保存在你的雲端硬碟。</li>
-              <li>繳交 <a href="https://classroom.google.com/" target="_blank" rel="noopener noreferrer" className="font-bold text-blue-600 hover:underline">Google Classroom</a>作業: 進入派發的作業，在「你的作業」區塊點擊 <b>「新增或建立」-&gt;雲端硬碟-&gt;選擇Google Docs 檔案-&gt; 「繳交」</b></li>
-            </ol>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // --- Main Render ---
-  return (
-    <div className="min-h-screen bg-slate-100 font-sans flex flex-col h-screen">
-      {/* 注入自訂動畫的 CSS */}
-      <style>
-        {`
-          @keyframes owl-blink {
-            0%, 97%, 100% { transform: scaleY(1); }
-            98.5% { transform: scaleY(0.1); }
+      const handleTopicImage = async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          setTopicImagePreview(URL.createObjectURL(file));
+          try {
+            const base64Data = await fileToBase64(file);
+            setTopicImage(base64Data);
+          } catch (error) {
+            console.error("題目圖片處理失敗:", error);
+            alert("題目圖片處理失敗，請換一張照片重試");
           }
-          .owl-blink-animation {
-            animation: owl-blink 8s infinite;
-            display: inline-block;
-            transform-origin: center;
-          }
-          @keyframes owl-wiggle {
-            0%, 46%, 52%, 95%, 100% { transform: rotate(0deg); }
-            /* 10秒處：單側晃動 */
-            48% { transform: rotate(8deg); }
-            49% { transform: rotate(3deg); }
-            50% { transform: rotate(6deg); }
-            /* 20秒處：左右輕微晃動 */
-            96% { transform: rotate(-6deg); }
-            97% { transform: rotate(6deg); }
-            98% { transform: rotate(-4deg); }
-            99% { transform: rotate(4deg); }
-          }
-          .owl-wiggle-animation {
-            animation: owl-wiggle 20s ease-in-out infinite;
-            display: inline-block;
-            transform-origin: center bottom;
-          }
-        `}
-      </style>
+        }
+      };
 
-      {/* Header */}
-      <header className="bg-slate-600 text-white py-2 px-3 md:py-2.5 md:px-4 shadow-md z-10 flex justify-between items-center flex-shrink-0 relative">
-        <h1 
-          className="text-base md:text-xl font-bold tracking-wide cursor-pointer hover:opacity-80 transition-opacity select-none active:scale-95"
-          onClick={() => {
-            setCurrentPhase(0);
-            setChatHistory([]);
-          }}
-          title="重新開始"
-          role="button"
-        >
-          {/* 加入 hidden md:inline 讓圖示在手機隱藏，電腦版顯示 */}
-          <span className="hidden md:inline">✒️ </span>Simon改作文 <span className="text-xs md:text-sm font-normal text-slate-200">v.21</span>
-        </h1>
-        
-        {/* 電腦版置中標語 */}
-        <div className="absolute left-1/2 transform -translate-x-1/2 hidden md:block">
-          <span className="text-sm font-medium text-slate-200 tracking-wide">
-            -- 經常練功，就會成功! --
-          </span>
-        </div>
+      const handleEssayImage = async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          setEssayImagePreview(URL.createObjectURL(file));
+          try {
+            const base64Data = await fileToBase64(file);
+            setEssayImage(base64Data);
+          } catch (error) {
+            console.error("作文圖片處理失敗:", error);
+            alert("作文圖片處理失敗，請換一張照片重試");
+          }
+        }
+      };
 
-        <div className="flex items-center space-x-3 md:space-x-4">
-          <span className="text-xs md:text-sm font-medium text-slate-200 tracking-wide">
-            bit.ly/aisimon21
-          </span>
-        </div>
-      </header>
-
-      {/* Main Content Layout */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        
-        {/* Left Column: Inputs. Hidden on mobile if phase > 0 to save space */}
-        <div className={`w-full lg:w-[28%] bg-white border-r border-slate-200 flex-col overflow-y-auto p-4 md:p-6 shadow-sm z-0 ${currentPhase > 0 ? 'hidden lg:flex' : 'flex'}`}>
+      const handleCopyReport = () => {
+        const reportDiv = document.createElement('div');
+        let htmlContent = `<div style="font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.15;">`;
+        htmlContent += `<h1 style="font-size: 16pt; font-weight: bold; margin-top: 0; margin-bottom: 8pt;">Simon改作文 - 批改報告</h1>`;
+        chatHistory.filter(msg => msg.role === 'simon' && msg.phase >= 1 && msg.phase <= 3).forEach(msg => {
+          const title = msg.phase === 1 ? "Phase 1: 拼字、標點與文法修正" :
+                        msg.phase === 2 ? "Phase 2: 段落結構分析" :
+                        "Phase 3: 總評與範文";
           
-          <div className="mb-6">
-            <label className="block text-slate-700 font-bold mb-2">[選填]作文題目與指示:</label>
-            <textarea 
-              className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none resize-none mb-2 text-base"
-              rows="2"
-              placeholder="輸入題目可使批改更準確 
-圖片題務必上傳照片"
-              value={topicText}
-              onChange={(e) => setTopicText(e.target.value)}
-              disabled={currentPhase > 0}
-            />
-            <div className="flex items-center space-x-2">
-              <label className={`cursor-pointer px-3 md:px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-lg border border-slate-300 transition-colors ${currentPhase > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
-                <span>📁 上傳題目照片</span>
-                <input type="file" accept="image/*" className="hidden" onChange={handleTopicImage} disabled={currentPhase > 0} />
-              </label>
-            </div>
-            {topicImagePreview && (
-              <img src={topicImagePreview} alt="Topic Thumbnail" className="mt-3 h-24 object-contain rounded border bg-slate-50" />
-            )}
-          </div>
+          htmlContent += `<h2 style="font-size: 13pt; font-weight: bold; color: #1e3a8a; margin-top: 14pt; margin-bottom: 4pt; border-bottom: 1px solid #ccc; padding-bottom: 2pt;">${title}</h2>`;
 
-          <div className="mb-6 flex-1">
-            <label className="block text-slate-700 font-bold mb-2">學生的英文作文: </label> 
-            <textarea 
-              className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none resize-none mb-2 text-base h-40 lg:h-64"
-              placeholder="請貼上文字
-或上傳手寫稿照片
-批改分3階段進行：      
-1. 拼字標點文法修正
-2. 段落結構與修辭建議
-3. 總評與範文                  
-最後可匯出完整批改到Google Docs"
-          
-              value={essayText}
-              onChange={(e) => setEssayText(e.target.value)}
-              disabled={currentPhase > 0}
-            />
-            <div className="flex items-center space-x-2">
-              <label className={`cursor-pointer px-3 md:px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-lg border border-slate-300 transition-colors ${currentPhase > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
-                <span>📸 上傳手寫稿照片</span>
-                <input type="file" accept="image/*" className="hidden" onChange={handleEssayImage} disabled={currentPhase > 0} />
-              </label>
-            </div>
-            {essayImagePreview && (
-              <img src={essayImagePreview} alt="Essay Thumbnail" className="mt-3 h-32 object-contain rounded border bg-slate-50" />
-            )}
-          </div>
-
-          <button 
-            onClick={startPhase1}
-            disabled={isLoading || currentPhase > 0}
-            className="w-full py-3 bg-[#c89f9c] hover:bg-[#ad8481] text-white font-bold rounded-xl shadow-md transition-all disabled:opacity-50 text-base md:text-lg tracking-wide"
-          >
-            {isLoading || currentPhase > 0 ? "批改中..." : "交給 Simon 老師批改"}
-          </button>
-
-          {/* 將設計師資訊移至左側選單最下方 */}
-          <div className="mt-auto pt-8 pb-2 text-center text-xs text-slate-400">
-            此AI已依大考英文作文批改標準調校設定<br/>
-            Designer: <a href="mailto:simon@mail3.hwsh.tc.edu.tw" className="hover:text-slate-600 transition-colors underline">simon@mail3.hwsh.tc.edu.tw</a>
-          </div>
-
-        </div>
-
-        {/* Right Column: Chat/Feedback Area. Hidden on mobile if phase === 0 */}
-        <div className={`w-full lg:w-[72%] flex-col ${currentPhase === 0 ? 'hidden lg:flex' : 'flex'} flex-1 overflow-hidden lg:p-3 lg:bg-slate-100 bg-slate-50`}>
-          <div className="flex-1 flex flex-col overflow-hidden bg-slate-50 border-t lg:border border-slate-300 lg:rounded-2xl lg:shadow-md">
-            <div className="flex-1 px-3 py-4 md:p-5 overflow-y-auto space-y-4 md:space-y-6 flex flex-col">
-              
-              {currentPhase === 0 && !isLoading && (
-                <div className="flex-1 flex items-center justify-center h-full min-h-[50vh]">
-                  <div className="text-center max-w-md mx-auto px-4">
-                    <div className="relative inline-flex items-center justify-center w-24 h-24 mb-5 bg-gradient-to-br from-indigo-50 to-blue-100 rounded-full shadow-md border-4 border-white transform transition-transform hover:scale-110 hover:rotate-6 cursor-pointer">
-                      <div className="owl-wiggle-animation">
-                        <span className="text-5xl md:text-6xl owl-blink-animation">🦉</span>
-                      </div>
-                      <span className="absolute -top-1 -right-2 text-2xl animate-pulse">✨</span>
-                    </div>
-                    <p className="text-lg md:text-xl font-medium text-slate-600 mb-3">Hi！我是 Simon 老師</p>
-                    <div className="text-sm md:text-base leading-relaxed text-slate-500 text-left inline-block mt-2">
-                      <br/>請在左方貼上文字檔或上傳照片(會自動轉為文字檔)<br/>
-                      
-                      
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {chatHistory.map((msg, idx) => (
-                <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  {msg.role !== 'user' && (
-                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-blue-100 border-2 border-white flex items-center justify-center text-lg md:text-xl mr-2 md:mr-3 flex-shrink-0 shadow-sm">🦉</div>
-                  )}
-                  <div className={`max-w-[95%] md:max-w-[85%] p-3.5 md:p-5 rounded-2xl shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none text-base md:text-lg leading-relaxed'}`}>
-                    {msg.role === 'user' ? (
-                      <p>{msg.content}</p>
-                    ) : (
-                      <div dangerouslySetInnerHTML={{ __html: msg.content }} />
-                    )}
-
-                  {/* UI Buttons for advancing phases automatically appended to Simon's specific messages */}
-                  {msg.phase === 1 && currentPhase === 1 && !isLoading && (
-                    <div className="mt-4 md:mt-6 border-t pt-3 md:pt-4 flex flex-col items-start">
-                      <button onClick={startPhase2} className="px-4 py-2 md:px-5 md:py-2 bg-[#8BA3B1] hover:bg-[#728B99] text-white font-bold rounded-lg shadow-sm transition-colors text-sm md:text-base">
-                        👉 進行段落結構分析
-                      </button>
-                    </div>
-                  )}
-
-                  {msg.phase === 2 && currentPhase === 2 && !isLoading && (
-                    <div className="mt-4 md:mt-6 border-t pt-3 md:pt-4 flex flex-col items-start">
-                      <button onClick={startPhase3} className="px-4 py-2 md:px-5 md:py-2 bg-[#8BA3B1] hover:bg-[#728B99] text-white font-bold rounded-lg shadow-sm transition-colors text-sm md:text-base">
-                        👉 看總評與範文
-                      </button>
-                    </div>
-                  )}
-
-                  {msg.phase === 3 && currentPhase === 4 && !isLoading && (
-                    <div className="mt-4 md:mt-6 border-t pt-3 md:pt-4 flex flex-col items-start">
-                      <button 
-                        onClick={() => setShowExport(true)} 
-                        className="px-5 py-2.5 md:px-6 md:py-3 bg-[#9BAA93] hover:bg-[#819379] text-white font-bold rounded-xl shadow-sm transition-all flex items-center space-x-2 text-sm md:text-base"
-                      >
-                        <span>📄 匯出完整批改報告</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-
-            {isLoading && (
-              <div className="flex justify-start items-center">
-                <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-blue-100 border-2 border-white flex items-center justify-center text-lg md:text-xl mr-2 md:mr-3 flex-shrink-0 shadow-sm">🦉</div>
-                <div className="bg-white border border-slate-200 p-3 md:p-4 rounded-2xl rounded-tl-none shadow-sm flex items-center space-x-2">
-                  <span className="text-slate-600 font-medium text-sm md:text-base">思考中請稍候</span>
-                  <div className="flex space-x-1 pt-1">
-                    <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-slate-400 rounded-full animate-bounce"></div>
-                    <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: "0.15s"}}></div>
-                    <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: "0.3s"}}></div>
-                  </div>
-                </div>
-              </div>
-            )}
+          let cleanContent = msg.content
+            .replace(/<\/?p[^>]*>/gi, '') 
+            .replace(/(<br\s*\/?>\s*){2,}/gi, '</p><p style="margin-top: 0pt; margin-bottom: 6pt;">')
+            .replace(/<br\s*\/?>/gi, '<br>');
             
-            <div ref={chatEndRef} />
-          </div>
+          cleanContent = `<p style="margin-top: 0pt; margin-bottom: 6pt;">${cleanContent}</p>`;
+          cleanContent = cleanContent.replace(/<p[^>]*>\s*<\/p>/gi, '');
+          htmlContent += `<div>${cleanContent}</div>`;
+        });
+        
+        htmlContent += `</div>`;
 
-          {/* Q&A Input Area for Phase 4 */}
-          {currentPhase === 4 && (
-            <div className="bg-white border-t p-3 md:p-4 flex items-center space-x-2 md:space-x-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10 flex-shrink-0">
-              <input
-                type="text"
-                className="flex-1 p-2 md:p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-400 focus:outline-none bg-slate-50 text-sm md:text-base"
-                placeholder="歡迎在此問我問題~"
-                value={qaText}
-                onChange={(e) => setQaText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleQA()}
-                disabled={isLoading}
-              />
-              <button
-                onClick={handleQA}
-                disabled={isLoading || !qaText.trim()}
-                className="p-2 md:p-3 px-4 md:px-5 bg-[#8BA3B1] hover:bg-[#728B99] text-white rounded-xl shadow-sm transition-colors disabled:opacity-50 text-sm md:text-base font-medium whitespace-nowrap"
-              >
-                送出
-              </button>
+        reportDiv.innerHTML = htmlContent;
+        reportDiv.style.position = 'absolute';
+        reportDiv.style.left = '-9999px';
+        document.body.appendChild(reportDiv);
+        const range = document.createRange();
+        range.selectNodeContents(reportDiv);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        try {
+          document.execCommand('copy');
+          setCopyStatus("✅ 完整報告已複製！請直接至 Google Docs 貼上");
+        } catch (err) {
+          console.error('複製失敗:', err);
+          setCopyStatus("❌ 複製失敗，請嘗試手動選取複製");
+        }
+
+        document.body.removeChild(reportDiv);
+        selection.removeAllRanges();
+        setTimeout(() => setCopyStatus(""), 3500);
+      };
+
+      if (showExport) {
+        return (
+          <div className="min-h-screen bg-gray-50 p-2 md:p-8 font-sans text-gray-800 relative">
+            {copyStatus && (
+              <div className="fixed top-10 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-2xl z-50 text-sm md:text-base font-medium animate-bounce">
+                {copyStatus}
+              </div>
+            )}
+            <div className="max-w-4xl mx-auto bg-white p-4 md:p-10 rounded-2xl shadow-lg">
+              <div className="flex justify-between items-center mb-6 md:mb-8 border-b pb-4">
+                <h1 
+                  className="text-base md:text-3xl font-bold text-slate-800 cursor-pointer hover:opacity-80 transition-opacity select-none active:scale-95"
+                  onClick={() => {
+                    setShowExport(false);
+                    setCurrentPhase(0);
+                    setChatHistory([]);
+                  }}
+                  title="重新開始"
+                  role="button"
+                >
+                  <span className="hidden md:inline">✒️ </span>Simon改作文
+                </h1>
+                <div className="flex space-x-2 md:space-x-3 flex-wrap justify-end gap-y-2">
+                  <a href="https://docs.google.com/document/create" target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 md:px-4 md:py-2 bg-[#9BAA93] hover:bg-[#819379] text-white rounded-lg transition-colors font-bold text-sm md:text-base shadow-sm flex items-center">
+                    📄 新增 Docs
+                  </a>
+                  <button onClick={handleCopyReport} className="px-3 py-1.5 md:px-4 md:py-2 bg-[#7A8C99] hover:bg-[#637582] text-white rounded-lg transition-colors font-bold text-sm md:text-base shadow-sm flex items-center">
+                    📋 一鍵複製
+                  </button>
+                  <button onClick={() => setShowExport(false)} className="px-3 py-1.5 md:px-4 md:py-2 bg-[#D1D6DA] hover:bg-[#BEC4C8] text-[#4A5568] rounded-lg transition-colors font-medium text-sm md:text-base flex items-center shadow-sm">
+                    返回
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-4 md:space-y-6">
+                {chatHistory.filter(msg => msg.role === 'simon' && msg.phase >= 1 && msg.phase <= 3).map((msg, idx) => (
+                  <div key={idx} className="bg-slate-50 p-4 md:p-6 rounded-xl border border-slate-100 shadow-sm">
+                    <h2 className="text-lg md:text-xl font-bold text-slate-700 mb-3 md:mb-4 border-l-4 border-blue-500 pl-3">
+                      {msg.phase === 1 ? "Phase 1: 拼字、標點與文法修正" : msg.phase === 2 ? "Phase 2: 段落結構分析" : "Phase 3: 總評與範文"}
+                    </h2>
+                    <div className="leading-normal text-base md:text-lg" dangerouslySetInnerHTML={{ __html: msg.content }} />
+                  </div>
+                ))}
+              </div>
             </div>
-          )}
+          </div>
+        );
+      }
 
+      return (
+        <div className="min-h-screen bg-slate-100 font-sans flex flex-col h-screen">
+          <style dangerouslySetInnerHTML={{__html: `
+            @keyframes owl-blink {
+              0%, 97%, 100% { transform: scaleY(1); }
+              98.5% { transform: scaleY(0.1); }
+            }
+            .owl-blink-animation {
+              animation: owl-blink 8s infinite;
+              display: inline-block;
+              transform-origin: center;
+            }
+            @keyframes owl-wiggle {
+              0%, 46%, 52%, 95%, 100% { transform: rotate(0deg); }
+              48% { transform: rotate(8deg); }
+              49% { transform: rotate(3deg); }
+              50% { transform: rotate(6deg); }
+              96% { transform: rotate(-6deg); }
+              97% { transform: rotate(6deg); }
+              98% { transform: rotate(-4deg); }
+              99% { transform: rotate(4deg); }
+            }
+            .owl-wiggle-animation {
+              animation: owl-wiggle 20s ease-in-out infinite;
+              display: inline-block;
+              transform-origin: center bottom;
+            }
+          `}} />
+
+          <header className="bg-slate-600 text-white py-2 px-3 md:py-2.5 md:px-4 shadow-md z-10 flex justify-between items-center flex-shrink-0 relative">
+            <h1 className="text-base md:text-xl font-bold tracking-wide cursor-pointer hover:opacity-80 transition-opacity select-none active:scale-95" onClick={() => { setCurrentPhase(0); setChatHistory([]); }} title="重新開始" role="button">
+              <span className="hidden md:inline">✒️ </span>Simon改作文 <span className="text-xs md:text-sm font-normal text-slate-200">v.21</span>
+            </h1>
+            <div className="absolute left-1/2 transform -translate-x-1/2 hidden md:block">
+              <span className="text-sm font-medium text-slate-200 tracking-wide">-- 經常練功，就會成功! --</span>
+            </div>
+            <div className="flex items-center space-x-3 md:space-x-4">
+              <span className="text-xs md:text-sm font-medium text-slate-200 tracking-wide">bit.ly/aisimon21</span>
+            </div>
+          </header>
+
+          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+            <div className={`w-full lg:w-[28%] bg-white border-r border-slate-200 flex-col overflow-y-auto p-4 md:p-6 shadow-sm z-0 ${currentPhase > 0 ? 'hidden lg:flex' : 'flex'}`}>
+              <div className="mb-6">
+                <label className="block text-slate-700 font-bold mb-2">[選填]作文題目與指示:</label>
+                <textarea className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none resize-none mb-2 text-base" rows="2" placeholder="輸入題目可使批改更準確 \n圖片題務必上傳照片" value={topicText} onChange={(e) => setTopicText(e.target.value)} disabled={currentPhase > 0} />
+                <div className="flex items-center space-x-2">
+                  <label className={`cursor-pointer px-3 md:px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-lg border border-slate-300 transition-colors ${currentPhase > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <span>📁 上傳題目照片</span>
+                    <input type="file" accept="image/*" className="hidden" onChange={handleTopicImage} disabled={currentPhase > 0} />
+                  </label>
+                </div>
+                {topicImagePreview && <img src={topicImagePreview} alt="Topic Thumbnail" className="mt-3 h-24 object-contain rounded border bg-slate-50" />}
+              </div>
+
+              <div className="mb-6 flex-1">
+                <label className="block text-slate-700 font-bold mb-2">學生的英文作文: </label> 
+                <textarea className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none resize-none mb-2 text-base h-40 lg:h-64" placeholder="請貼上文字或上傳手寫稿照片\n批改分3階段進行：\n1. 拼字標點文法修正\n2. 段落結構與修辭建議\n3. 總評與範文\n最後可匯出完整批改到Google Docs" value={essayText} onChange={(e) => setEssayText(e.target.value)} disabled={currentPhase > 0} />
+                <div className="flex items-center space-x-2">
+                  <label className={`cursor-pointer px-3 md:px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-lg border border-slate-300 transition-colors ${currentPhase > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <span>📸 上傳手寫稿照片</span>
+                    <input type="file" accept="image/*" className="hidden" onChange={handleEssayImage} disabled={currentPhase > 0} />
+                  </label>
+                </div>
+                {essayImagePreview && <img src={essayImagePreview} alt="Essay Thumbnail" className="mt-3 h-32 object-contain rounded border bg-slate-50" />}
+              </div>
+
+              <button onClick={startPhase1} disabled={isLoading || currentPhase > 0} className="w-full py-3 bg-[#c89f9c] hover:bg-[#ad8481] text-white font-bold rounded-xl shadow-md transition-all disabled:opacity-50 text-base md:text-lg tracking-wide">
+                {isLoading || currentPhase > 0 ? "批改中..." : "交給 Simon 老師批改"}
+              </button>
+
+              <div className="mt-auto pt-8 pb-2 text-center text-xs text-slate-400">
+                此AI已依大考英文作文批改標準調校設定<br/>
+                Designer: <a href="mailto:simon@mail3.hwsh.tc.edu.tw" className="hover:text-slate-600 transition-colors underline">simon@mail3.hwsh.tc.edu.tw</a>
+              </div>
+            </div>
+
+            <div className={`w-full lg:w-[72%] flex-col ${currentPhase === 0 ? 'hidden lg:flex' : 'flex'} flex-1 overflow-hidden lg:p-3 lg:bg-slate-100 bg-slate-50`}>
+              <div className="flex-1 flex flex-col overflow-hidden bg-slate-50 border-t lg:border border-slate-300 lg:rounded-2xl lg:shadow-md">
+                <div className="flex-1 px-3 py-4 md:p-5 overflow-y-auto space-y-4 md:space-y-6 flex flex-col">
+                  {currentPhase === 0 && !isLoading && (
+                    <div className="flex-1 flex items-center justify-center h-full min-h-[50vh]">
+                      <div className="text-center max-w-md mx-auto px-4">
+                        <div className="relative inline-flex items-center justify-center w-24 h-24 mb-5 bg-gradient-to-br from-indigo-50 to-blue-100 rounded-full shadow-md border-4 border-white transform transition-transform hover:scale-110 hover:rotate-6 cursor-pointer">
+                          <div className="owl-wiggle-animation">
+                            <span className="text-5xl md:text-6xl owl-blink-animation">🦉</span>
+                          </div>
+                          <span className="absolute -top-1 -right-2 text-2xl animate-pulse">✨</span>
+                        </div>
+                        <p className="text-lg md:text-xl font-medium text-slate-600 mb-3">Hi！我是 Simon 老師</p>
+                        <div className="text-sm md:text-base leading-relaxed text-slate-500 text-left inline-block mt-2">
+                          <br/>請在左方貼上文字檔或上傳照片(會自動轉為文字檔)<br/>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {chatHistory.map((msg, idx) => (
+                    <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      {msg.role !== 'user' && <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-blue-100 border-2 border-white flex items-center justify-center text-lg md:text-xl mr-2 md:mr-3 flex-shrink-0 shadow-sm">🦉</div>}
+                      <div className={`max-w-[95%] md:max-w-[85%] p-3.5 md:p-5 rounded-2xl shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none text-base md:text-lg leading-relaxed'}`}>
+                        {msg.role === 'user' ? <p>{msg.content}</p> : <div dangerouslySetInnerHTML={{ __html: msg.content }} />}
+                        
+                        {msg.phase === 1 && currentPhase === 1 && !isLoading && (
+                          <div className="mt-4 md:mt-6 border-t pt-3 md:pt-4 flex flex-col items-start">
+                            <button onClick={startPhase2} className="px-4 py-2 md:px-5 md:py-2 bg-[#8BA3B1] hover:bg-[#728B99] text-white font-bold rounded-lg shadow-sm transition-colors text-sm md:text-base">
+                              👉 進行段落結構分析
+                            </button>
+                          </div>
+                        )}
+
+                        {msg.phase === 2 && currentPhase === 2 && !isLoading && (
+                          <div className="mt-4 md:mt-6 border-t pt-3 md:pt-4 flex flex-col items-start">
+                            <button onClick={startPhase3} className="px-4 py-2 md:px-5 md:py-2 bg-[#8BA3B1] hover:bg-[#728B99] text-white font-bold rounded-lg shadow-sm transition-colors text-sm md:text-base">
+                              👉 看總評與範文
+                            </button>
+                          </div>
+                        )}
+
+                        {msg.phase === 3 && currentPhase === 4 && !isLoading && (
+                          <div className="mt-4 md:mt-6 border-t pt-3 md:pt-4 flex flex-col items-start">
+                            <button onClick={() => setShowExport(true)} className="px-5 py-2.5 md:px-6 md:py-3 bg-[#9BAA93] hover:bg-[#819379] text-white font-bold rounded-xl shadow-sm transition-all flex items-center space-x-2 text-sm md:text-base">
+                              <span>📄 匯出完整批改報告</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {isLoading && (
+                    <div className="flex justify-start items-center">
+                      <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-blue-100 border-2 border-white flex items-center justify-center text-lg md:text-xl mr-2 md:mr-3 flex-shrink-0 shadow-sm">🦉</div>
+                      <div className="bg-white border border-slate-200 p-3 md:p-4 rounded-2xl rounded-tl-none shadow-sm flex items-center space-x-2">
+                        <span className="text-slate-600 font-medium text-sm md:text-base">思考中請稍候</span>
+                        <div className="flex space-x-1 pt-1">
+                          <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-slate-400 rounded-full animate-bounce"></div>
+                          <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: "0.15s"}}></div>
+                          <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: "0.3s"}}></div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+
+                {currentPhase === 4 && (
+                  <div className="bg-white border-t p-3 md:p-4 flex items-center space-x-2 md:space-x-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10 flex-shrink-0">
+                    <input type="text" className="flex-1 p-2 md:p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-400 focus:outline-none bg-slate-50 text-sm md:text-base" placeholder="歡迎在此問我問題~" value={qaText} onChange={(e) => setQaText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !isLoading && handleQA()} disabled={isLoading} />
+                    <button onClick={handleQA} disabled={isLoading || !qaText.trim()} className="p-2 md:p-3 px-4 md:px-5 bg-[#8BA3B1] hover:bg-[#728B99] text-white rounded-xl shadow-sm transition-colors disabled:opacity-50 text-sm md:text-base font-medium whitespace-nowrap">
+                      送出
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
