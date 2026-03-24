@@ -1,33 +1,9 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simon 改作文 v.22</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-</head>
-<body class="bg-slate-100">
-    <div id="root"></div>
-    <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
-        // 呼叫 Netlify Functions 的相對路徑
-        const API_URL = "/.netlify/functions/gemini-proxy";
-
-        function App() {
-            // ... (此處包含 Simon 老師 v.22 的完整 React 邏輯)
-            // 核心功能：透過 fetch(API_URL) 發送請求
-            return (
-                <div className="p-4">
-                    <h1 className="text-2xl font-bold">Simon 改作文系統</h1>
-                    <p>請在 GitHub 根目錄放置此檔案。</p>
-                </div>
-            );
-        }
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+{
+  "name": "essay",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "echo \"Add your build command\" && exit 0"
+  },
+  "dependencies": {}
+}
