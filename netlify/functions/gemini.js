@@ -17,7 +17,7 @@ exports.handler = async function(event, context) {
   }
 
   // Gemini API 的完整網址
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
   try {
     // 將前端傳來的資料 (event.body) 轉發給 Google Gemini
