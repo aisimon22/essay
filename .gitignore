@@ -1,0 +1,12 @@
+# 排除 Node.js 套件資料夾 (這是造成 Asset too large 的主因)
+node_modules/
+
+# 排除 Netlify 的暫存檔
+.netlify/
+
+# 排除 Cloudflare 的暫存檔
+.wrangler/
+
+# 排除系統產生的雜物
+.DS_Store
+Thumbs.db
